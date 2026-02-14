@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
 
 import pandas as pd
 import streamlit as st
@@ -14,7 +15,7 @@ from models import (
     TranslationRevenueLine,
 )
 from pricing import calculate_project_quote
-from report import generate_report_html
+from report import build_export_frames, generate_report_html
 from storage import get_quote_history, init_db, save_quote
 
 st.set_page_config(page_title="Käännösprojektin kannattavuuslaskuri", layout="wide")
@@ -192,6 +193,34 @@ with tab_laskuri:
                 data=stamped_report.encode("utf-8"),
                 file_name=f"projekti_{quote_id}.html",
                 mime="text/html",
+            )
+
+            export_frames = build_export_frames(quote_input, result)
+
+            csv_tables = []
+            for section_name, frame in export_frames.items():
+                section_frame = frame.copy()
+                section_frame.insert(0, "Osio", section_name)
+                csv_tables.append(section_frame)
+            combined_csv = pd.concat(csv_tables, ignore_index=True, sort=False)
+
+            st.download_button(
+                label="Lataa laskelma CSV",
+                data=combined_csv.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"projekti_{quote_id}.csv",
+                mime="text/csv",
+            )
+
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                for sheet_name, frame in export_frames.items():
+                    frame.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+
+            st.download_button(
+                label="Lataa laskelma Excel",
+                data=excel_buffer.getvalue(),
+                file_name=f"projekti_{quote_id}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
             if result.translation_lines:

@@ -2,11 +2,96 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pandas as pd
+
 from models import ProjectCalculation, ProjectQuoteInput
 
 
 def _eur(value: float) -> str:
     return f"{value:,.2f} EUR".replace(",", " ")
+
+
+def build_export_frames(quote: ProjectQuoteInput, result: ProjectCalculation) -> dict[str, pd.DataFrame]:
+    perustiedot = pd.DataFrame(
+        [
+            {"Kenttä": "Projektin nimi", "Arvo": quote.project_name},
+            {"Kenttä": "Asiakas", "Arvo": quote.customer_name},
+            {"Kenttä": "Kieliparit", "Arvo": quote.language_pairs_text or ""},
+            {"Kenttä": "Tekstityyppi", "Arvo": quote.text_type or ""},
+            {"Kenttä": "Aloituspäivä", "Arvo": quote.start_date.isoformat() if quote.start_date else ""},
+            {"Kenttä": "Päättymispäivä", "Arvo": quote.end_date.isoformat() if quote.end_date else ""},
+        ]
+    )
+
+    kaannostyo = pd.DataFrame(
+        [
+            {
+                "Kielipari": line.name,
+                "Sanamäärä": int(line.quantity),
+                "EUR/sana": line.unit_price,
+                "Veroton EUR": line.net_amount,
+                "ALV %": line.vat_pct,
+                "ALV EUR": line.vat_amount,
+                "Brutto EUR": line.gross_amount,
+            }
+            for line in result.translation_lines
+        ]
+    )
+
+    lisapalvelut = pd.DataFrame(
+        [
+            {
+                "Palvelu": line.name,
+                "Määrä": line.quantity,
+                "EUR/yksikkö": line.unit_price,
+                "Veroton EUR": line.net_amount,
+                "ALV %": line.vat_pct,
+                "ALV EUR": line.vat_amount,
+                "Brutto EUR": line.gross_amount,
+            }
+            for line in result.additional_service_lines
+        ]
+    )
+
+    tyokustannukset = pd.DataFrame(
+        [
+            {
+                "Rooli": line.role_name,
+                "Tunnit": line.hours,
+                "Bruttopalkka EUR/h": line.gross_hourly_cost,
+                "Sivukulukerroin": line.side_cost_multiplier,
+                "Yhteensä EUR": line.total_cost,
+            }
+            for line in result.labor_lines
+        ]
+    )
+
+    muut_kulut = pd.DataFrame(
+        [{"Kulu": line.cost_name, "Summa EUR": line.amount} for line in result.other_cost_lines]
+    )
+
+    yhteenveto = pd.DataFrame(
+        [
+            {"Tunnusluku": "Kokonaistuotto veroton", "Arvo": result.total_revenue_net},
+            {"Tunnusluku": "Kokonaistuotto ALV", "Arvo": result.total_revenue_vat},
+            {"Tunnusluku": "Kokonaistuotto brutto", "Arvo": result.total_revenue_gross},
+            {"Tunnusluku": "Muuttuvat kustannukset", "Arvo": result.variable_cost_total},
+            {"Tunnusluku": "Kate", "Arvo": result.contribution_margin},
+            {"Tunnusluku": "Kate-%", "Arvo": result.contribution_margin_pct},
+            {"Tunnusluku": "Tuotto/sana", "Arvo": result.revenue_per_word},
+            {"Tunnusluku": "Kustannus/sana", "Arvo": result.cost_per_word},
+            {"Tunnusluku": "Kate/sana", "Arvo": result.margin_per_word},
+        ]
+    )
+
+    return {
+        "Perustiedot": perustiedot,
+        "Käännöstyö": kaannostyo,
+        "Lisäpalvelut": lisapalvelut,
+        "Työkustannukset": tyokustannukset,
+        "Muut kulut": muut_kulut,
+        "Yhteenveto": yhteenveto,
+    }
 
 
 def generate_report_html(
